@@ -1,0 +1,30 @@
+[workspace]
+members = [
+    "crates/goldsrc",
+    "crates/grs",
+]
+resolver = "3"
+
+[workspace.package]
+version = "0.20.0"
+edition = "2024"
+authors = ["GoldSrc.rs Team"]
+description = "Next-generation GoldSrc technical platform, facade meta-crate, developer CLI, and architecture hub"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/goldsrc-rs/goldsrc"
+
+[workspace.dependencies]
+goldsrc-api = { git = "https://github.com/goldsrc-rs/goldsrc-sdk.git", branch = "dev" }
+goldsrc-spi = { git = "https://github.com/goldsrc-rs/goldsrc-sdk.git", branch = "dev" }
+goldsrc-macros = { git = "https://github.com/goldsrc-rs/goldsrc-sdk.git", branch = "dev" }
+goldsrc-sys = { git = "https://github.com/goldsrc-rs/goldsrc-sdk.git", branch = "dev" }
+clap = { version = "4.5", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "1.1"
+
+[profile.release]
+lto = "thin"
+opt-level = "z"
+strip = "debuginfo"
+panic = "unwind"

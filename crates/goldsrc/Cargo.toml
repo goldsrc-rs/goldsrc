@@ -1,0 +1,16 @@
+[package]
+name = "goldsrc"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description = "Facade meta-crate and ergonomic high-level SDK for GoldSrc / Half-Life engine plugins"
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+goldsrc-api = { workspace = true }
+goldsrc-spi = { workspace = true }
+goldsrc-macros = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
