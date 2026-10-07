@@ -15,7 +15,9 @@ pub use goldsrc_macros::{
 /// Developer prelude for GoldSrc plugins.
 pub mod prelude {
     pub use goldsrc_api::cvar::{ConfigModel, Cvar, CvarFlags};
-    pub use goldsrc_api::hud::{HudColor, HudCoord, HudEffect, HudKind, HudMessage, HudMessageBuilder};
+    pub use goldsrc_api::hud::{
+        HudColor, HudCoord, HudEffect, HudKind, HudMessage, HudMessageBuilder,
+    };
     pub use goldsrc_api::menu::{
         ClassicMenuRenderer, DhudMenuRenderer, Menu, MenuActionHandler, MenuActionRegistry,
         MenuBuilder, MenuContext, MenuItem, MenuPageBuilder, MenuRenderer, MenuRendererKind,

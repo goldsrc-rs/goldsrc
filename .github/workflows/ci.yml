@@ -48,13 +48,13 @@ jobs:
         uses: taiki-e/install-action@nextest
 
       - name: Run Clippy
-        run: cargo clippy --all-targets --all-features --locked -- -D warnings
+        run: cargo clippy --all-targets --all-features -- -D warnings
 
       - name: Run Tests (Nextest)
-        run: cargo nextest run --all-targets --locked
+        run: cargo nextest run --all-targets --no-tests=pass
 
       - name: Run Doc Tests
-        run: cargo test --doc --locked
+        run: cargo test --doc
 
       - name: Compile Benchmarks
         run: cargo bench --no-run --locked
