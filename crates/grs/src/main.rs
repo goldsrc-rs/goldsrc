@@ -3,6 +3,7 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
+mod arch;
 mod build;
 mod check;
 mod config;
@@ -41,9 +42,21 @@ enum Commands {
         /// Target architecture triple (default: wasm32-unknown-unknown)
         #[arg(long)]
         target: Option<String>,
+        /// Build all packages in the workspace (--workspace)
+        #[arg(long)]
+        workspace: bool,
         /// Build in release mode
         #[arg(long, default_value_t = true)]
         release: bool,
+        /// Build preset: 'production', 'debug-symbols', or 'dev'
+        #[arg(long)]
+        preset: Option<String>,
+        /// Override profile.release.debug (e.g. '0', '1', '2', 'line-tables-only')
+        #[arg(long)]
+        debug_level: Option<String>,
+        /// Override profile.release.strip (e.g. 'none', 'debuginfo', 'symbols')
+        #[arg(long)]
+        strip: Option<String>,
     },
     /// Deploy plugins and runtime to a local HLDS / ReHLDS test server
     Deploy {
@@ -59,6 +72,11 @@ enum Commands {
     },
     /// Validate workspace code formatting, lints, and unit tests
     Check,
+    /// Sewing Machine Architecture (SMA) and Architecture-as-Code tooling
+    Arch {
+        #[command(subcommand)]
+        sub: arch::ArchCommands,
+    },
     /// Inspect plugins or runtime state
     Pl {
         #[command(subcommand)]
@@ -116,12 +134,20 @@ fn main() {
         Commands::Build {
             package,
             target,
+            workspace,
             release,
+            preset,
+            debug_level,
+            strip,
         } => {
             let opts = build::BuildOptions {
                 package: package.as_deref(),
                 target: target.as_deref(),
+                workspace,
                 release,
+                preset: preset.as_deref(),
+                debug_level: debug_level.as_deref(),
+                strip: strip.as_deref(),
             };
             if let Err(err) = build::execute_build(opts) {
                 eprintln!("Build error: {err}");
@@ -146,6 +172,12 @@ fn main() {
         Commands::Check => {
             if let Err(err) = check::execute_check() {
                 eprintln!("Check error: {err}");
+                std::process::exit(1);
+            }
+        }
+        Commands::Arch { sub } => {
+            if let Err(err) = arch::execute_arch(sub) {
+                eprintln!("Architecture check error: {err}");
                 std::process::exit(1);
             }
         }

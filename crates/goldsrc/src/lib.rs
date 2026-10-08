@@ -9,7 +9,7 @@ pub use goldsrc_spi as spi;
 pub use goldsrc_api::*;
 pub use goldsrc_macros::{
     ConfigModel, bundle, command, command_prefix, event, menu_action, on_frame, on_load, on_unload,
-    permission, permissions, plugin, requires, role, system,
+    permission, permissions, plugin, requires, role,
 };
 
 /// Developer prelude for GoldSrc plugins.
@@ -32,18 +32,18 @@ pub mod prelude {
         Classname, Client, ClientExt, ClientKind, Command, CommandBuilder, CommandContext,
         CommandError, CommandHandler, CommandRegistry, CommandResult, CommandTarget, Condition,
         Connected, ConnectedClient, ConnectionState, Dead, DeadPlayer, DenyAction, DenyPolicy,
-        Dormant, Entity, EntityExt, EntityId, Event, EventHandler, EventPhase, EventRegistry,
-        EventSubscriberBuilder, EventSubscription, ExitBehavior, Feedback, FromArg, Health, Hltv,
-        Human, HumanClient, Interceptor, ItemKind, ItemTitle, LifeState, LivingHuman, LivingPlayer,
-        NodeBuilder, NoneOf, Not, OrderNode, Origin, Phase, PhasedDag, Placeholder,
+        Dormant, EngineEvent, Entity, EntityExt, EntityId, Event, EventHandler, EventPhase,
+        EventRegistry, EventSubscriberBuilder, EventSubscription, ExitBehavior, Feedback, FromArg,
+        Health, Hltv, Human, HumanClient, Interceptor, ItemKind, ItemTitle, LifeState, LivingHuman,
+        LivingPlayer, NodeBuilder, NoneOf, Not, OrderNode, Origin, Phase, PhasedDag, Placeholder,
         PlaceholderBuilder, PlaceholderCall, PlaceholderHandler, PlaceholderMetadata,
         PlaceholderRegistry, Player, PlayerAction, PlayerExt, PlayerSlot, PlayerStateFilter,
-        PluginTier, PrintTarget, Prop, PropGet, PropSet, RefineExt, Refined, SlotAction, Solid,
-        SolidEntity, Spawned, SpawnedEntity, SpectatingPlayer, Spectator, Team, TeamTarget,
+        Players, PluginTier, PrintTarget, Prop, PropGet, PropSet, RefineExt, Refined, SlotAction,
+        Solid, SolidEntity, Spawned, SpawnedEntity, SpectatingPlayer, Spectator, Team, TeamTarget,
         TypedBlackboard, ValidationResult, Vector3, Velocity, VipCaps, VisualDeny,
     };
     pub use goldsrc_macros::{
         ConfigModel as CvarConfigModel, bundle, command, command_prefix, event, menu_action,
-        on_frame, on_load, on_unload, permission, permissions, plugin, requires, role, system,
+        on_frame, on_load, on_unload, permission, permissions, plugin, requires, role,
     };
 }
