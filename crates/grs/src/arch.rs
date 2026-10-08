@@ -7,6 +7,7 @@ use clap::Subcommand;
 use std::path::{Path, PathBuf};
 use stitch_cli::check::CheckRunner;
 use stitch_cli::config::{RuleSeverity, StitchConfig};
+use stitch_cli::fix::FixEngine;
 use stitch_cli::graph::GraphExtractor;
 use stitch_cli::health::HealthEngine;
 use stitch_cli::metrics::MetricsAuditor;
@@ -39,6 +40,18 @@ pub enum ArchCommands {
         /// Enforce strict health threshold failure
         #[arg(long)]
         strict: bool,
+    },
+    /// Automatically fixes and reorders struct fields in descending alignment order (Scrooge)
+    Fix {
+        /// Target workspace directory (default: current directory)
+        #[arg(short, long, default_value = ".")]
+        dir: PathBuf,
+        /// Apply Scrooge struct alignment reordering
+        #[arg(long, default_value = "true")]
+        scrooge: bool,
+        /// Simulate fixes without writing to disk
+        #[arg(long)]
+        dry_run: bool,
     },
     /// Extracts architectural DAG: outputs Mermaid, Graphviz DOT, JSON, or interactive HTML
     Graph {
@@ -73,6 +86,11 @@ pub fn execute_arch(cmd: ArchCommands) -> Result<(), String> {
             output,
             strict,
         } => run_health(&dir, &format, output, strict),
+        ArchCommands::Fix {
+            dir,
+            scrooge,
+            dry_run,
+        } => run_fix(&dir, scrooge, dry_run),
         ArchCommands::Graph {
             dir,
             format,
@@ -177,6 +195,41 @@ pub fn run_health(
         ));
     }
 
+    Ok(())
+}
+
+pub fn run_fix(target_dir: &Path, _scrooge: bool, dry_run: bool) -> Result<(), String> {
+    println!(
+        "==> [SMA] Running Automated Architecture Fixer at `{}`...",
+        target_dir.display()
+    );
+    let engine = FixEngine::new(target_dir);
+    let report = engine.run_scrooge(dry_run)?;
+
+    if report.changes.is_empty() {
+        println!("\n✅ All audited structs already adhere to optimal descending alignment. 0 bytes wasted.");
+    } else {
+        let action = if dry_run { "PROPOSED" } else { "APPLIED" };
+        println!("\n{:=<80}", "");
+        println!("           AUTOMATED STRUCT ALIGNMENT (SCROOGE) REORDERING REPORT");
+        println!("{:=<80}", "");
+        println!("  Status: {} fixes across {} structs", action, report.changes.len());
+        println!("  Total Padding Eliminated: {} bytes\n", report.total_padding_saved);
+
+        for ch in &report.changes {
+            println!(
+                "  • [STRUCT] {} ({}:{})",
+                ch.struct_name,
+                ch.file_path.display(),
+                ch.line
+            );
+            println!(
+                "    Declared Size: {} B -> {} B  |  Padding Eliminated: {} B",
+                ch.declared_size_before, ch.declared_size_after, ch.padding_saved
+            );
+        }
+        println!("{:=<80}\n", "");
+    }
     Ok(())
 }
 
