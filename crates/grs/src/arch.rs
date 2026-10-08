@@ -1,13 +1,14 @@
 //! Architecture-as-Code runner (`grs arch`).
 //!
 //! Exposes Sewing Machine Architecture (SMA) static analysis, graph extraction,
-//! and Scrooge systems metrics via `stitch-cli`.
+//! Scrooge systems metrics, and multidimensional health scorecard via `stitch-cli`.
 
 use clap::Subcommand;
 use std::path::{Path, PathBuf};
 use stitch_cli::check::CheckRunner;
 use stitch_cli::config::{RuleSeverity, StitchConfig};
 use stitch_cli::graph::GraphExtractor;
+use stitch_cli::health::HealthEngine;
 use stitch_cli::metrics::MetricsAuditor;
 
 #[derive(Subcommand, Debug)]
@@ -17,7 +18,25 @@ pub enum ArchCommands {
         /// Target workspace directory (default: current directory)
         #[arg(short, long, default_value = ".")]
         dir: PathBuf,
+        /// Diagnostic format (miette, rustc)
+        #[arg(short, long, default_value = "miette")]
+        format: String,
         /// Treat warnings as hard errors
+        #[arg(long)]
+        strict: bool,
+    },
+    /// Evaluates multidimensional architecture health scorecard (Taxonomy, DIP, Scrooge, Hotpath, Concurrency)
+    Health {
+        /// Target workspace directory (default: current directory)
+        #[arg(short, long, default_value = ".")]
+        dir: PathBuf,
+        /// Output format (text, json)
+        #[arg(short, long, default_value = "text")]
+        format: String,
+        /// Optional destination file to write output to
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// Enforce strict health threshold failure
         #[arg(long)]
         strict: bool,
     },
@@ -43,7 +62,17 @@ pub enum ArchCommands {
 
 pub fn execute_arch(cmd: ArchCommands) -> Result<(), String> {
     match cmd {
-        ArchCommands::Check { dir, strict } => run_check(&dir, strict),
+        ArchCommands::Check {
+            dir,
+            format,
+            strict,
+        } => run_check(&dir, &format, strict),
+        ArchCommands::Health {
+            dir,
+            format,
+            output,
+            strict,
+        } => run_health(&dir, &format, output, strict),
         ArchCommands::Graph {
             dir,
             format,
@@ -53,7 +82,7 @@ pub fn execute_arch(cmd: ArchCommands) -> Result<(), String> {
     }
 }
 
-pub fn run_check(target_dir: &Path, strict: bool) -> Result<(), String> {
+pub fn run_check(target_dir: &Path, format: &str, strict: bool) -> Result<(), String> {
     println!(
         "==> [SMA] Scanning workspace architecture at `{}`...",
         target_dir.display()
@@ -64,20 +93,27 @@ pub fn run_check(target_dir: &Path, strict: bool) -> Result<(), String> {
 
     let mut error_count = 0;
     let mut warn_count = 0;
+    let use_rustc_fmt = format == "rustc";
 
     for diag in &diagnostics {
+        let rendered = if use_rustc_fmt {
+            diag.render_rustc()
+        } else {
+            diag.render_miette()
+        };
+
         match diag.severity {
             RuleSeverity::Deny => {
                 error_count += 1;
-                eprint!("{}", diag.render_rustc());
+                eprint!("{rendered}");
             }
             RuleSeverity::Warn => {
                 warn_count += 1;
                 if strict {
                     error_count += 1;
-                    eprint!("{}", diag.render_rustc());
+                    eprint!("{rendered}");
                 } else {
-                    println!("{}", diag.render_rustc());
+                    println!("{rendered}");
                 }
             }
             RuleSeverity::Allow => {}
@@ -89,11 +125,59 @@ pub fn run_check(target_dir: &Path, strict: bool) -> Result<(), String> {
             "SMA architectural check failed: {error_count} error(s), {warn_count} warning(s)."
         ))
     } else {
-        println!(
-            "\n✅ SMA Architecture Clean: 0 errors, {warn_count} warning(s) found."
-        );
+        println!("\n✅ SMA Architecture Clean: 0 errors, {warn_count} warning(s) found.");
         Ok(())
     }
+}
+
+pub fn run_health(
+    target_dir: &Path,
+    format: &str,
+    output_file: Option<PathBuf>,
+    strict: bool,
+) -> Result<(), String> {
+    println!(
+        "==> [SMA] Evaluating Multidimensional Architecture Health Scorecard at `{}`...",
+        target_dir.display()
+    );
+    let config = StitchConfig::load(target_dir);
+    let engine = HealthEngine::new(&config, target_dir);
+    let report = engine.evaluate();
+
+    if format == "json" {
+        let json = serde_json::to_string_pretty(&report)
+            .map_err(|e| format!("Serialization error: {e}"))?;
+        if let Some(path) = output_file {
+            std::fs::write(&path, &json).map_err(|e| {
+                format!("Failed to write health report to `{}`: {e}", path.display())
+            })?;
+            println!("✅ Health report written to `{}`.", path.display());
+        } else {
+            println!("{json}");
+        }
+    } else {
+        let text = report.render_terminal();
+        if let Some(path) = output_file {
+            std::fs::write(&path, &text).map_err(|e| {
+                format!("Failed to write health report to `{}`: {e}", path.display())
+            })?;
+            println!("✅ Health report written to `{}`.", path.display());
+        } else {
+            print!("{text}");
+        }
+    }
+
+    if !report.passed && strict {
+        return Err(format!(
+            "Architecture Health failed threshold: composite {:.1}% (min {:.1}%), hotpath {:.1}% (min {:.1}%).",
+            report.composite_score,
+            config.health.thresholds.min_composite * 100.0,
+            report.dimensions.zero_alloc_hotpath.score_pct,
+            config.health.thresholds.min_hotpath * 100.0
+        ));
+    }
+
+    Ok(())
 }
 
 pub fn run_graph(
