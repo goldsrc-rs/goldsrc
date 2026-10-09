@@ -4,9 +4,10 @@
 //! Scrooge systems metrics, and multidimensional health scorecard via `stitch-cli`.
 
 use clap::Subcommand;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use stitch_cli::check::CheckRunner;
-use stitch_cli::config::{RuleSeverity, StitchConfig};
+use stitch_cli::config::{RuleSeverity, ScopeFilter, StitchConfig};
 use stitch_cli::fix::FixEngine;
 use stitch_cli::graph::GraphExtractor;
 use stitch_cli::health::HealthEngine;
@@ -19,6 +20,12 @@ pub enum ArchCommands {
         /// Target workspace directory (default: current directory)
         #[arg(short, long, default_value = ".")]
         dir: PathBuf,
+        /// Scope filter by crate, directory, file, or symbol (e.g. `services/*`, `ChatContext`)
+        #[arg(short, long)]
+        scope: Option<String>,
+        /// Filter by category (scrooge, taxo, bound, hotpath, concur)
+        #[arg(short, long)]
+        category: Option<String>,
         /// Diagnostic format (miette, rustc)
         #[arg(short, long, default_value = "miette")]
         format: String,
@@ -31,6 +38,9 @@ pub enum ArchCommands {
         /// Target workspace directory (default: current directory)
         #[arg(short, long, default_value = ".")]
         dir: PathBuf,
+        /// Scope filter by crate, directory, file, or symbol (e.g. `services/*`, `ChatContext`)
+        #[arg(short, long)]
+        scope: Option<String>,
         /// Output format (text, json)
         #[arg(short, long, default_value = "text")]
         format: String,
@@ -46,9 +56,18 @@ pub enum ArchCommands {
         /// Target workspace directory (default: current directory)
         #[arg(short, long, default_value = ".")]
         dir: PathBuf,
+        /// Scope filter by crate, directory, file, or symbol (e.g. `services/*`, `ChatContext`)
+        #[arg(short, long)]
+        scope: Option<String>,
+        /// Target specific category (scrooge, taxo)
+        #[arg(short, long)]
+        category: Option<String>,
         /// Apply Scrooge struct alignment reordering
         #[arg(long, default_value = "true")]
         scrooge: bool,
+        /// Apply taxonomy naming check
+        #[arg(long)]
+        taxo: bool,
         /// Simulate fixes without writing to disk
         #[arg(long)]
         dry_run: bool,
@@ -58,6 +77,9 @@ pub enum ArchCommands {
         /// Target workspace directory (default: current directory)
         #[arg(short, long, default_value = ".")]
         dir: PathBuf,
+        /// Scope filter by crate, directory, file, or symbol (preserves 1-hop boundary context)
+        #[arg(short, long)]
+        scope: Option<String>,
         /// Output format (text, json, mermaid, dot, html)
         #[arg(short, long, default_value = "mermaid")]
         format: String,
@@ -70,6 +92,9 @@ pub enum ArchCommands {
         /// Target workspace directory (default: current directory)
         #[arg(short, long, default_value = ".")]
         dir: PathBuf,
+        /// Scope filter by crate, directory, file, or symbol (e.g. `services/*`, `ChatContext`)
+        #[arg(short, long)]
+        scope: Option<String>,
     },
 }
 
@@ -77,37 +102,72 @@ pub fn execute_arch(cmd: ArchCommands) -> Result<(), String> {
     match cmd {
         ArchCommands::Check {
             dir,
+            scope,
+            category,
             format,
             strict,
-        } => run_check(&dir, &format, strict),
+        } => run_check(&dir, scope.as_deref(), category.as_deref(), &format, strict),
         ArchCommands::Health {
             dir,
+            scope,
             format,
             output,
             strict,
-        } => run_health(&dir, &format, output, strict),
+        } => run_health(&dir, scope.as_deref(), &format, output, strict),
         ArchCommands::Fix {
             dir,
+            scope,
+            category,
             scrooge,
+            taxo,
             dry_run,
-        } => run_fix(&dir, scrooge, dry_run),
+        } => run_fix(
+            &dir,
+            scope.as_deref(),
+            category.as_deref(),
+            scrooge,
+            taxo,
+            dry_run,
+        ),
         ArchCommands::Graph {
             dir,
+            scope,
             format,
             output,
-        } => run_graph(&dir, &format, output),
-        ArchCommands::Metrics { dir } => run_metrics(&dir),
+        } => run_graph(&dir, scope.as_deref(), &format, output),
+        ArchCommands::Metrics { dir, scope } => run_metrics(&dir, scope.as_deref()),
     }
 }
 
-pub fn run_check(target_dir: &Path, format: &str, strict: bool) -> Result<(), String> {
+pub fn run_check(
+    target_dir: &Path,
+    scope: Option<&str>,
+    category: Option<&str>,
+    format: &str,
+    strict: bool,
+) -> Result<(), String> {
     println!(
         "==> [SMA] Scanning workspace architecture at `{}`...",
         target_dir.display()
     );
+    let scope_filter = scope.map(ScopeFilter::new);
+    if let Some(s) = &scope_filter {
+        println!("    Scope filter: `{}`", s.raw);
+    }
     let config = StitchConfig::load(target_dir);
-    let runner = CheckRunner::new(&config, target_dir);
-    let diagnostics = runner.run();
+    let runner = CheckRunner::new_scoped(&config, target_dir, scope_filter);
+    let mut diagnostics = runner.run();
+
+    if let Some(cat_str) = category {
+        let cats: HashSet<String> = cat_str
+            .split(',')
+            .map(|s| s.trim().to_lowercase())
+            .filter(|s| !s.is_empty())
+            .collect();
+        if !cats.is_empty() {
+            diagnostics.retain(|d| cats.iter().any(|c| d.code.to_lowercase().contains(c)));
+        }
+    }
 
     let mut error_count = 0;
     let mut warn_count = 0;
@@ -150,6 +210,7 @@ pub fn run_check(target_dir: &Path, format: &str, strict: bool) -> Result<(), St
 
 pub fn run_health(
     target_dir: &Path,
+    scope: Option<&str>,
     format: &str,
     output_file: Option<PathBuf>,
     strict: bool,
@@ -158,8 +219,9 @@ pub fn run_health(
         "==> [SMA] Evaluating Multidimensional Architecture Health Scorecard at `{}`...",
         target_dir.display()
     );
+    let scope_filter = scope.map(ScopeFilter::new);
     let config = StitchConfig::load(target_dir);
-    let engine = HealthEngine::new(&config, target_dir);
+    let engine = HealthEngine::new_scoped(&config, target_dir, scope_filter);
     let report = engine.evaluate();
 
     if format == "json" {
@@ -198,47 +260,118 @@ pub fn run_health(
     Ok(())
 }
 
-pub fn run_fix(target_dir: &Path, _scrooge: bool, dry_run: bool) -> Result<(), String> {
+pub fn run_fix(
+    target_dir: &Path,
+    scope: Option<&str>,
+    category: Option<&str>,
+    scrooge: bool,
+    taxo: bool,
+    dry_run: bool,
+) -> Result<(), String> {
     println!(
         "==> [SMA] Running Automated Architecture Fixer at `{}`...",
         target_dir.display()
     );
-    let engine = FixEngine::new(target_dir);
-    let report = engine.run_scrooge(dry_run)?;
-
-    if report.changes.is_empty() {
-        println!("\n✅ All audited structs already adhere to optimal descending alignment. 0 bytes wasted.");
-    } else {
-        let action = if dry_run { "PROPOSED" } else { "APPLIED" };
-        println!("\n{:=<80}", "");
-        println!("           AUTOMATED STRUCT ALIGNMENT (SCROOGE) REORDERING REPORT");
-        println!("{:=<80}", "");
-        println!("  Status: {} fixes across {} structs", action, report.changes.len());
-        println!("  Total Padding Eliminated: {} bytes\n", report.total_padding_saved);
-
-        for ch in &report.changes {
-            println!(
-                "  • [STRUCT] {} ({}:{})",
-                ch.struct_name,
-                ch.file_path.display(),
-                ch.line
-            );
-            println!(
-                "    Declared Size: {} B -> {} B  |  Padding Eliminated: {} B",
-                ch.declared_size_before, ch.declared_size_after, ch.padding_saved
-            );
-        }
-        println!("{:=<80}\n", "");
+    let scope_filter = scope.map(ScopeFilter::new);
+    if let Some(s) = &scope_filter {
+        println!("    Scope filter: `{}`", s.raw);
     }
+
+    let mut run_scrooge = scrooge;
+    let mut run_taxo = taxo;
+    if let Some(cat) = category {
+        for c in cat.split(',') {
+            match c.trim().to_lowercase().as_str() {
+                "scrooge" => run_scrooge = true,
+                "taxo" => run_taxo = true,
+                "all" => {
+                    run_scrooge = true;
+                    run_taxo = true;
+                }
+                _ => {}
+            }
+        }
+    }
+
+    if run_scrooge {
+        println!("    Active category: `scrooge` (struct alignment optimization)");
+        let engine = FixEngine::new_scoped(target_dir, scope_filter.clone());
+        let report = engine.run_scrooge(dry_run)?;
+
+        if report.changes.is_empty() {
+            println!(
+                "\n✅ All audited structs already adhere to optimal descending alignment. 0 bytes wasted."
+            );
+        } else {
+            let action = if dry_run { "PROPOSED" } else { "APPLIED" };
+            println!("\n{:=<80}", "");
+            println!("           AUTOMATED STRUCT ALIGNMENT (SCROOGE) REORDERING REPORT");
+            println!("{:=<80}", "");
+            println!(
+                "  Status: {} fixes across {} structs",
+                action,
+                report.changes.len()
+            );
+            println!(
+                "  Total Padding Eliminated: {} bytes\n",
+                report.total_padding_saved
+            );
+
+            for ch in &report.changes {
+                println!(
+                    "  • [STRUCT] {} ({}:{})",
+                    ch.struct_name,
+                    ch.file_path.display(),
+                    ch.line
+                );
+                println!(
+                    "    Declared Size: {} B -> {} B  |  Padding Eliminated: {} B",
+                    ch.declared_size_before, ch.declared_size_after, ch.padding_saved
+                );
+            }
+            println!("{:=<80}\n", "");
+        }
+    }
+
+    if run_taxo {
+        println!("    Active category: `taxo` (taxonomy & suffix validation)");
+        println!(
+            "ℹ️  Taxonomy naming fixes require architectural confirmation. Running dry-run check..."
+        );
+        let config = StitchConfig::load(target_dir);
+        let runner = CheckRunner::new_scoped(&config, target_dir, scope_filter);
+        let taxo_diags: Vec<_> = runner
+            .run()
+            .into_iter()
+            .filter(|d| d.code.starts_with("SMA-TAXO-"))
+            .collect();
+        if taxo_diags.is_empty() {
+            println!("✅ All components adhere to strict SMA taxonomy suffixes.");
+        } else {
+            println!("⚠️  Found {} taxonomy violations:", taxo_diags.len());
+            for d in &taxo_diags {
+                println!(
+                    "  • [{}] {} ({}:{})",
+                    d.code,
+                    d.message,
+                    d.file.display(),
+                    d.line
+                );
+            }
+        }
+    }
+
     Ok(())
 }
 
 pub fn run_graph(
     target_dir: &Path,
+    scope: Option<&str>,
     format: &str,
     output_file: Option<PathBuf>,
 ) -> Result<(), String> {
-    let extractor = GraphExtractor::new(target_dir);
+    let scope_filter = scope.map(ScopeFilter::new);
+    let extractor = GraphExtractor::new_scoped(target_dir, scope_filter);
     let graph = extractor.extract();
 
     let output_str = match format {
@@ -264,9 +397,13 @@ pub fn run_graph(
     Ok(())
 }
 
-pub fn run_metrics(target_dir: &Path) -> Result<(), String> {
+pub fn run_metrics(target_dir: &Path, scope: Option<&str>) -> Result<(), String> {
     println!("==> [SMA] Running Scrooge Systems Memory & Alignment Audit...");
-    let auditor = MetricsAuditor::new(target_dir);
+    let scope_filter = scope.map(ScopeFilter::new);
+    if let Some(s) = &scope_filter {
+        println!("    Scope filter: `{}`", s.raw);
+    }
+    let auditor = MetricsAuditor::new_scoped(target_dir, scope_filter);
     let reports = auditor.audit();
 
     println!("\n{:=<80}", "");
