@@ -112,6 +112,12 @@ pub struct DeployConfig {
     /// Custom backend deployment rules (keyed by backend name).
     #[serde(default)]
     pub backend_defs: HashMap<String, BackendDeployDef>,
+    /// Automatically terminate running HLDS server process before deploying binaries.
+    #[serde(default)]
+    pub kill_server: bool,
+    /// Automatically restart HLDS server process after successful deployment.
+    #[serde(default)]
+    pub restart_server: bool,
 }
 
 fn default_mod() -> String {
@@ -126,6 +132,8 @@ impl Default for DeployConfig {
             backend: BackendType::default(),
             variables: HashMap::new(),
             backend_defs: HashMap::new(),
+            kill_server: false,
+            restart_server: false,
         }
     }
 }

@@ -84,6 +84,12 @@ enum Commands {
         /// Verify target directory structure without copying files
         #[arg(long)]
         verify: bool,
+        /// Terminate running HLDS server process before copying binaries
+        #[arg(long)]
+        kill: bool,
+        /// Restart HLDS server process after deployment
+        #[arg(long)]
+        restart: bool,
     },
     /// Validate workspace code formatting, lints, and unit tests
     Check,
@@ -181,11 +187,15 @@ fn main() {
             path,
             backend,
             verify,
+            kill,
+            restart,
         } => {
             let opts = deploy::DeployOptions {
                 server_path: path.as_deref(),
                 backend: backend.map(Into::into),
                 verify_only: verify,
+                kill,
+                restart,
             };
             if let Err(err) = deploy::execute_deploy(opts, &local_cfg) {
                 eprintln!("Deploy error: {err}");

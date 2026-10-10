@@ -1,15 +1,16 @@
-//! Server deployment orchestrator (`grs deploy`).
-
 use crate::config::{BackendType, FilePatchRule, LocalConfig};
 use crate::patch::{apply_key_value_patch, apply_list_entry_patch, evaluate_template};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 /// Options for deploying plugins or runtime to a server.
 pub struct DeployOptions<'a> {
     pub server_path: Option<&'a Path>,
     pub backend: Option<BackendType>,
     pub verify_only: bool,
+    pub kill: bool,
+    pub restart: bool,
 }
 
 pub fn execute_deploy(opts: DeployOptions<'_>, config: &LocalConfig) -> Result<(), String> {
@@ -27,6 +28,29 @@ pub fn execute_deploy(opts: DeployOptions<'_>, config: &LocalConfig) -> Result<(
             "Target server path does not exist: {}",
             server_root.display()
         ));
+    }
+
+    let should_kill = opts.kill || opts.restart || config.deploy.kill_server;
+    let should_restart = opts.restart || config.deploy.restart_server;
+
+    // Detect running HLDS process and capture its launch arguments if restart is requested
+    let mut server_launch_info = None;
+    if should_kill || should_restart {
+        if let Some(proc_info) = find_running_hlds_process(&server_root) {
+            println!(
+                "Detected running HLDS process (PID: {}). Terminating for deployment...",
+                proc_info.pid
+            );
+            terminate_process(proc_info.pid)?;
+            // Small pause to allow OS file handles to be released
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            server_launch_info = Some(proc_info);
+        } else if opts.kill {
+            println!(
+                "No active HLDS process found matching {}",
+                server_root.display()
+            );
+        }
     }
 
     let mod_name = &config.deploy.mod_name;
@@ -213,5 +237,193 @@ pub fn execute_deploy(opts: DeployOptions<'_>, config: &LocalConfig) -> Result<(
     }
 
     println!("Deployment completed successfully.");
+
+    if should_restart {
+        restart_hlds_server(&server_root, mod_name, server_launch_info.as_ref())?;
+    }
+
     Ok(())
+}
+
+/// Metadata about a running HLDS server process.
+struct HldsProcessInfo {
+    pid: u32,
+    raw_cmdline: Option<String>,
+}
+
+/// Discovers a running HLDS process whose executable path is inside `server_root`.
+fn find_running_hlds_process(server_root: &Path) -> Option<HldsProcessInfo> {
+    if cfg!(windows) {
+        // Query CIM/WMI on Windows
+        let server_canonical = server_root
+            .canonicalize()
+            .unwrap_or_else(|_| server_root.to_path_buf());
+        let server_str = server_canonical.to_string_lossy().to_lowercase();
+
+        let output = Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-Command",
+                "Get-CimInstance Win32_Process -Filter \"name = 'hlds.exe'\" | Select-Object ProcessId, ExecutablePath, CommandLine | ConvertTo-Json -Compress",
+            ])
+            .output()
+            .ok()?;
+
+        if !output.status.success() {
+            return None;
+        }
+
+        let json_str = String::from_utf8(output.stdout).ok()?;
+        if json_str.trim().is_empty() {
+            return None;
+        }
+
+        #[derive(serde::Deserialize)]
+        struct WinProc {
+            #[serde(rename = "ProcessId")]
+            process_id: u32,
+            #[serde(rename = "ExecutablePath")]
+            executable_path: Option<String>,
+            #[serde(rename = "CommandLine")]
+            command_line: Option<String>,
+        }
+
+        // Output can be a single object or an array of objects
+        let procs: Vec<WinProc> = if let Ok(single) = serde_json::from_str::<WinProc>(&json_str) {
+            vec![single]
+        } else {
+            serde_json::from_str::<Vec<WinProc>>(&json_str).unwrap_or_default()
+        };
+
+        for p in procs {
+            if let Some(exe) = &p.executable_path {
+                let exe_lower = exe.to_lowercase();
+                if exe_lower.contains(&server_str) || exe_lower.contains("desktop\\server") {
+                    return Some(HldsProcessInfo {
+                        pid: p.process_id,
+                        raw_cmdline: p.command_line,
+                    });
+                }
+            }
+        }
+    } else {
+        // Unix: use pgrep / ps
+        let output = Command::new("pgrep")
+            .arg("-f")
+            .arg("hlds_linux")
+            .output()
+            .ok()?;
+
+        if output.status.success() {
+            let pid_str = String::from_utf8_lossy(&output.stdout);
+            if let Some(first_line) = pid_str.lines().next() {
+                let parsed_pid = first_line.trim().parse::<u32>().ok();
+                if let Some(pid) = parsed_pid {
+                    return Some(HldsProcessInfo {
+                        pid,
+                        raw_cmdline: None,
+                    });
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Terminates a process by its PID.
+fn terminate_process(pid: u32) -> Result<(), String> {
+    if cfg!(windows) {
+        let status = Command::new("taskkill")
+            .args(["/F", "/PID", &pid.to_string()])
+            .status()
+            .map_err(|e| format!("Failed to invoke taskkill: {e}"))?;
+
+        if status.success() {
+            Ok(())
+        } else {
+            Err(format!("taskkill failed with status: {status}"))
+        }
+    } else {
+        let status = Command::new("kill")
+            .args(["-9", &pid.to_string()])
+            .status()
+            .map_err(|e| format!("Failed to invoke kill: {e}"))?;
+
+        if status.success() {
+            Ok(())
+        } else {
+            Err(format!("kill failed with status: {status}"))
+        }
+    }
+}
+
+/// Restarts the HLDS server process.
+fn restart_hlds_server(
+    server_root: &Path,
+    mod_name: &str,
+    info: Option<&HldsProcessInfo>,
+) -> Result<(), String> {
+    let exe_name = if cfg!(windows) {
+        "hlds.exe"
+    } else {
+        "hlds_run"
+    };
+    let hlds_exe = server_root.join(exe_name);
+
+    if !hlds_exe.exists() {
+        return Err(format!(
+            "Server executable not found at {}",
+            hlds_exe.display()
+        ));
+    }
+
+    println!("Restarting server: {} ...", hlds_exe.display());
+
+    let mut cmd = Command::new(&hlds_exe);
+    cmd.current_dir(server_root);
+
+    // If we captured the original commandline, extract arguments
+    if let Some(raw) = info.and_then(|i| i.raw_cmdline.as_deref()) {
+        let args = parse_command_line_args(raw);
+        // Skip argv[0] (the executable itself)
+        if args.len() > 1 {
+            cmd.args(&args[1..]);
+        } else {
+            cmd.args(["-game", mod_name, "-console", "+map", "de_dust2"]);
+        }
+    } else {
+        cmd.args(["-game", mod_name, "-console", "+map", "de_dust2"]);
+    }
+
+    cmd.spawn()
+        .map_err(|e| format!("Failed to spawn {}: {e}", hlds_exe.display()))?;
+
+    println!("Server process launched successfully.");
+    Ok(())
+}
+
+/// Basic commandline tokenizer respecting quotes.
+fn parse_command_line_args(input: &str) -> Vec<String> {
+    let mut args = Vec::new();
+    let mut current = String::new();
+    let mut in_quotes = false;
+
+    for c in input.chars() {
+        match c {
+            '"' => in_quotes = !in_quotes,
+            ' ' | '\t' if !in_quotes => {
+                if !current.is_empty() {
+                    args.push(std::mem::take(&mut current));
+                }
+            }
+            _ => current.push(c),
+        }
+    }
+
+    if !current.is_empty() {
+        args.push(current);
+    }
+
+    args
 }
