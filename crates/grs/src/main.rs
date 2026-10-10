@@ -3,11 +3,14 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
+mod arch;
 mod build;
 mod check;
 mod config;
 mod deploy;
+mod patch;
 mod scaffold;
+mod setup;
 
 use config::{BackendType, LocalConfig};
 
@@ -22,6 +25,16 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Inspect environment, toolchains, offline references, and configure project
+    #[command(alias = "configure")]
+    Setup {
+        /// Target game mod name (e.g. 'cstrike')
+        #[arg(long)]
+        game: Option<String>,
+        /// Path to HLDS server directory
+        #[arg(long)]
+        path: Option<PathBuf>,
+    },
     /// Scaffold a new GoldSrc WebAssembly plugin
     New {
         /// Plugin name / folder to create
@@ -35,15 +48,30 @@ enum Commands {
     },
     /// Build WebAssembly plugins or runtime backends
     Build {
+        /// Engine runtime backend to build ('metamod' or 'standalone')
+        #[arg(long, value_enum)]
+        backend: Option<BackendArg>,
         /// Package name to build (-p <pkg>)
         #[arg(short, long)]
         package: Option<String>,
-        /// Target architecture triple (default: wasm32-unknown-unknown)
+        /// Target architecture triple (e.g. wasm32-unknown-unknown, i686-pc-windows-msvc)
         #[arg(long)]
         target: Option<String>,
+        /// Build all packages in the workspace (--workspace)
+        #[arg(long)]
+        workspace: bool,
         /// Build in release mode
-        #[arg(long, default_value_t = true)]
-        release: bool,
+        #[arg(long)]
+        release: Option<bool>,
+        /// Build preset: 'production', 'debug-symbols', or 'dev'
+        #[arg(long)]
+        preset: Option<String>,
+        /// Override profile.release.debug (e.g. '0', '1', '2', 'line-tables-only')
+        #[arg(long)]
+        debug_level: Option<String>,
+        /// Override profile.release.strip (e.g. 'none', 'debuginfo', 'symbols')
+        #[arg(long)]
+        strip: Option<String>,
     },
     /// Deploy plugins and runtime to a local HLDS / ReHLDS test server
     Deploy {
@@ -56,9 +84,20 @@ enum Commands {
         /// Verify target directory structure without copying files
         #[arg(long)]
         verify: bool,
+        /// Terminate running HLDS server process before copying binaries
+        #[arg(long)]
+        kill: bool,
+        /// Restart HLDS server process after deployment
+        #[arg(long)]
+        restart: bool,
     },
     /// Validate workspace code formatting, lints, and unit tests
     Check,
+    /// Sewing Machine Architecture (SMA) and Architecture-as-Code tooling
+    Arch {
+        #[command(subcommand)]
+        sub: arch::ArchCommands,
+    },
     /// Inspect plugins or runtime state
     Pl {
         #[command(subcommand)]
@@ -98,6 +137,12 @@ fn main() {
     let local_cfg = LocalConfig::load();
 
     match cli.command {
+        Commands::Setup { game, path } => {
+            if let Err(err) = setup::execute_setup(game.as_deref(), path.as_deref()) {
+                eprintln!("Setup error: {err}");
+                std::process::exit(1);
+            }
+        }
         Commands::New {
             name,
             game,
@@ -114,16 +159,26 @@ fn main() {
             }
         }
         Commands::Build {
+            backend,
             package,
             target,
+            workspace,
             release,
+            preset,
+            debug_level,
+            strip,
         } => {
             let opts = build::BuildOptions {
+                backend: backend.map(Into::into),
                 package: package.as_deref(),
                 target: target.as_deref(),
+                workspace,
                 release,
+                preset: preset.as_deref(),
+                debug_level: debug_level.as_deref(),
+                strip: strip.as_deref(),
             };
-            if let Err(err) = build::execute_build(opts) {
+            if let Err(err) = build::execute_build(opts, &local_cfg) {
                 eprintln!("Build error: {err}");
                 std::process::exit(1);
             }
@@ -132,11 +187,15 @@ fn main() {
             path,
             backend,
             verify,
+            kill,
+            restart,
         } => {
             let opts = deploy::DeployOptions {
                 server_path: path.as_deref(),
                 backend: backend.map(Into::into),
                 verify_only: verify,
+                kill,
+                restart,
             };
             if let Err(err) = deploy::execute_deploy(opts, &local_cfg) {
                 eprintln!("Deploy error: {err}");
@@ -146,6 +205,12 @@ fn main() {
         Commands::Check => {
             if let Err(err) = check::execute_check() {
                 eprintln!("Check error: {err}");
+                std::process::exit(1);
+            }
+        }
+        Commands::Arch { sub } => {
+            if let Err(err) = arch::execute_arch(sub) {
+                eprintln!("Architecture check error: {err}");
                 std::process::exit(1);
             }
         }
