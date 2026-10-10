@@ -39,7 +39,13 @@ pub fn execute_deploy(opts: DeployOptions<'_>, config: &LocalConfig) -> Result<(
         ));
     }
 
-    let goldsrc_dir = target_mod_dir.join("addons").join("goldsrc");
+    let backend = opts.backend.unwrap_or(config.deploy.backend);
+    println!("Configured backend: {:?}", backend);
+
+    let goldsrc_dir = match backend {
+        BackendType::Metamod => target_mod_dir.join("addons").join("goldsrc"),
+        BackendType::Standalone => target_mod_dir.join("goldsrc"),
+    };
     let plugins_dir = goldsrc_dir.join("plugins");
     let lang_dir = goldsrc_dir.join("lang");
 
@@ -48,7 +54,7 @@ pub fn execute_deploy(opts: DeployOptions<'_>, config: &LocalConfig) -> Result<(
     if opts.verify_only {
         println!("Verifying deployment structure...");
         if !goldsrc_dir.exists() {
-            return Err("addons/goldsrc directory not found".to_string());
+            return Err(format!("{} directory not found", goldsrc_dir.display()));
         }
         println!("Verification OK: Deployment directory exists.");
         return Ok(());
@@ -56,9 +62,6 @@ pub fn execute_deploy(opts: DeployOptions<'_>, config: &LocalConfig) -> Result<(
 
     fs::create_dir_all(&plugins_dir).map_err(|e| e.to_string())?;
     fs::create_dir_all(&lang_dir).map_err(|e| e.to_string())?;
-
-    let backend = opts.backend.unwrap_or(config.deploy.backend);
-    println!("Configured backend: {:?}", backend);
 
     // Auto-cache settings back to .goldsrc.toml if flags were passed or changed
     let should_save_cache = (opts.server_path.is_some()
