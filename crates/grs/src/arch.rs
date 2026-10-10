@@ -154,7 +154,7 @@ pub fn run_check(
     if let Some(s) = &scope_filter {
         println!("    Scope filter: `{}`", s.raw);
     }
-    let config = StitchConfig::load(target_dir);
+    let config = StitchConfig::load(target_dir).unwrap_or_default();
     let runner = CheckRunner::new_scoped(&config, target_dir, scope_filter);
     let mut diagnostics = runner.run();
 
@@ -220,7 +220,7 @@ pub fn run_health(
         target_dir.display()
     );
     let scope_filter = scope.map(ScopeFilter::new);
-    let config = StitchConfig::load(target_dir);
+    let config = StitchConfig::load(target_dir).unwrap_or_default();
     let engine = HealthEngine::new_scoped(&config, target_dir, scope_filter);
     let report = engine.evaluate();
 
@@ -338,7 +338,7 @@ pub fn run_fix(
         println!(
             "ℹ️  Taxonomy naming fixes require architectural confirmation. Running dry-run check..."
         );
-        let config = StitchConfig::load(target_dir);
+        let config = StitchConfig::load(target_dir).unwrap_or_default();
         let runner = CheckRunner::new_scoped(&config, target_dir, scope_filter);
         let taxo_diags: Vec<_> = runner
             .run()

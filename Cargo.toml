@@ -40,10 +40,10 @@ panic = "unwind"
 overflow-checks = true
 
 [patch."https://github.com/goldsrc-rs/goldsrc-sdk.git"]
-goldsrc-api = { path = "../goldsrc-sdk/goldsrc-api" }
-goldsrc-spi = { path = "../goldsrc-sdk/goldsrc-spi" }
-goldsrc-macros = { path = "../goldsrc-sdk/goldsrc-macros" }
-goldsrc-sys = { path = "../goldsrc-sdk/goldsrc-sys" }
+goldsrc-api = { path = "../goldsrc-sdk-core/goldsrc-api" }
+goldsrc-spi = { path = "../goldsrc-sdk-core/goldsrc-spi" }
+goldsrc-macros = { path = "../goldsrc-sdk-core/goldsrc-macros" }
+goldsrc-sys = { path = "../goldsrc-sdk-core/goldsrc-sys" }
 
 [patch."https://github.com/ulquiorracode/stitch-rs.git"]
 stitch-cli = { path = "../../stitch-rs/crates/stitch-cli" }

@@ -8,7 +8,9 @@ mod build;
 mod check;
 mod config;
 mod deploy;
+mod patch;
 mod scaffold;
+mod setup;
 
 use config::{BackendType, LocalConfig};
 
@@ -23,6 +25,16 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Inspect environment, toolchains, offline references, and configure project
+    #[command(alias = "configure")]
+    Setup {
+        /// Target game mod name (e.g. 'cstrike')
+        #[arg(long)]
+        game: Option<String>,
+        /// Path to HLDS server directory
+        #[arg(long)]
+        path: Option<PathBuf>,
+    },
     /// Scaffold a new GoldSrc WebAssembly plugin
     New {
         /// Plugin name / folder to create
@@ -116,6 +128,12 @@ fn main() {
     let local_cfg = LocalConfig::load();
 
     match cli.command {
+        Commands::Setup { game, path } => {
+            if let Err(err) = setup::execute_setup(game.as_deref(), path.as_deref()) {
+                eprintln!("Setup error: {err}");
+                std::process::exit(1);
+            }
+        }
         Commands::New {
             name,
             game,
