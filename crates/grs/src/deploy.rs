@@ -151,14 +151,18 @@ pub fn execute_deploy(opts: DeployOptions<'_>, config: &LocalConfig) -> Result<(
             BackendType::Standalone => format!("{lib_prefix}goldsrc_standalone.{lib_ext}"),
         };
 
-        // Check common target build locations
+        // Check common target build locations (prioritizing host_triple specific builds)
         let candidate_sources = [
-            PathBuf::from(format!("target/release/{bin_name}")),
-            PathBuf::from(format!("target/{host_triple}/release/{bin_name}")),
-            PathBuf::from(format!("../goldsrc-runtime/target/release/{bin_name}")),
             PathBuf::from(format!(
                 "../goldsrc-runtime/target/{host_triple}/release/{bin_name}"
             )),
+            PathBuf::from(format!("target/{host_triple}/release/{bin_name}")),
+            PathBuf::from(format!(
+                "../goldsrc-runtime/target/{host_triple}/debug/{bin_name}"
+            )),
+            PathBuf::from(format!("target/{host_triple}/debug/{bin_name}")),
+            PathBuf::from(format!("../goldsrc-runtime/target/release/{bin_name}")),
+            PathBuf::from(format!("target/release/{bin_name}")),
         ];
 
         for src in &candidate_sources {
