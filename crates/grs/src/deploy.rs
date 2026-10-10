@@ -264,7 +264,7 @@ fn find_running_hlds_process(server_root: &Path) -> Option<HldsProcessInfo> {
             .args([
                 "-NoProfile",
                 "-Command",
-                "Get-CimInstance Win32_Process -Filter \"name = 'hlds.exe'\" | Select-Object ProcessId, ExecutablePath, CommandLine | ConvertTo-Json -Compress",
+                "Get-CimInstance Win32_Process | Where-Object Name -eq 'hlds.exe' | Select-Object ProcessId, ExecutablePath, CommandLine | ConvertTo-Json -Compress",
             ])
             .output()
             .ok()?;
@@ -380,24 +380,78 @@ fn restart_hlds_server(
 
     println!("Restarting server: {} ...", hlds_exe.display());
 
-    let mut cmd = Command::new(&hlds_exe);
-    cmd.current_dir(server_root);
-
-    // If we captured the original commandline, extract arguments
-    if let Some(raw) = info.and_then(|i| i.raw_cmdline.as_deref()) {
+    let final_args: Vec<String> = if let Some(raw) = info.and_then(|i| i.raw_cmdline.as_deref()) {
         let args = parse_command_line_args(raw);
-        // Skip argv[0] (the executable itself)
         if args.len() > 1 {
-            cmd.args(&args[1..]);
+            args[1..].to_vec()
         } else {
-            cmd.args(["-game", mod_name, "-console", "+map", "de_dust2"]);
+            vec![
+                "-game".into(),
+                mod_name.into(),
+                "-console".into(),
+                "-insecure".into(),
+                "+maxplayers".into(),
+                "32".into(),
+                "+map".into(),
+                "de_dust2".into(),
+                "+port".into(),
+                "27015".into(),
+            ]
         }
     } else {
-        cmd.args(["-game", mod_name, "-console", "+map", "de_dust2"]);
-    }
+        vec![
+            "-game".into(),
+            mod_name.into(),
+            "-console".into(),
+            "-insecure".into(),
+            "+maxplayers".into(),
+            "32".into(),
+            "+map".into(),
+            "de_dust2".into(),
+            "+port".into(),
+            "27015".into(),
+        ]
+    };
 
-    cmd.spawn()
-        .map_err(|e| format!("Failed to spawn {}: {e}", hlds_exe.display()))?;
+    println!("Server launch arguments: {:?}", final_args);
+
+    if cfg!(windows) {
+        // On Windows, launching directly via Command::spawn binds HLDS to the parent console/job object.
+        // If grs was run from an IDE/terminal, terminating or exiting grs may kill HLDS or leave it without a console.
+        // Using WMI Win32_Process::Create spawns HLDS independently under WmiPrvSE (session 1), completely decoupled.
+        let mut full_cmdline = format!("\"{}\"", hlds_exe.display());
+        for arg in &final_args {
+            if arg.contains(' ') {
+                full_cmdline.push_str(&format!(" \"{arg}\""));
+            } else {
+                full_cmdline.push_str(&format!(" {arg}"));
+            }
+        }
+
+        let cur_dir = server_root.display().to_string();
+        let ps_script = format!(
+            "Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{{ CommandLine = '{}'; CurrentDirectory = '{}' }}",
+            full_cmdline.replace('\'', "''"),
+            cur_dir.replace('\'', "''")
+        );
+
+        let output = Command::new("powershell")
+            .args(["-NoProfile", "-Command", &ps_script])
+            .output()
+            .map_err(|e| format!("Failed to spawn HLDS via WMI: {e}"))?;
+
+        if !output.status.success() {
+            let err = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("Failed to spawn HLDS via WMI: {err}"));
+        }
+    } else {
+        let mut cmd = Command::new(&hlds_exe);
+        cmd.current_dir(server_root);
+        cmd.args(&final_args);
+
+        cmd.spawn()
+            .map_err(|e| format!("Failed to spawn {}: {e}", hlds_exe.display()))?;
+    }
 
     println!("Server process launched successfully.");
     Ok(())
