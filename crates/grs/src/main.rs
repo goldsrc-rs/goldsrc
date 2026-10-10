@@ -48,18 +48,21 @@ enum Commands {
     },
     /// Build WebAssembly plugins or runtime backends
     Build {
+        /// Engine runtime backend to build ('metamod' or 'standalone')
+        #[arg(long, value_enum)]
+        backend: Option<BackendArg>,
         /// Package name to build (-p <pkg>)
         #[arg(short, long)]
         package: Option<String>,
-        /// Target architecture triple (default: wasm32-unknown-unknown)
+        /// Target architecture triple (e.g. wasm32-unknown-unknown, i686-pc-windows-msvc)
         #[arg(long)]
         target: Option<String>,
         /// Build all packages in the workspace (--workspace)
         #[arg(long)]
         workspace: bool,
         /// Build in release mode
-        #[arg(long, default_value_t = true)]
-        release: bool,
+        #[arg(long)]
+        release: Option<bool>,
         /// Build preset: 'production', 'debug-symbols', or 'dev'
         #[arg(long)]
         preset: Option<String>,
@@ -150,6 +153,7 @@ fn main() {
             }
         }
         Commands::Build {
+            backend,
             package,
             target,
             workspace,
@@ -159,6 +163,7 @@ fn main() {
             strip,
         } => {
             let opts = build::BuildOptions {
+                backend: backend.map(Into::into),
                 package: package.as_deref(),
                 target: target.as_deref(),
                 workspace,
@@ -167,7 +172,7 @@ fn main() {
                 debug_level: debug_level.as_deref(),
                 strip: strip.as_deref(),
             };
-            if let Err(err) = build::execute_build(opts) {
+            if let Err(err) = build::execute_build(opts, &local_cfg) {
                 eprintln!("Build error: {err}");
                 std::process::exit(1);
             }

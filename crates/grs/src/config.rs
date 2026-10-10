@@ -67,10 +67,32 @@ pub struct BackendDeployDef {
 }
 
 /// Target-specific section with variables (e.g. `[target.'cfg(windows)'.variables]`).
+/// Target-specific section with variables (e.g. `[target.'cfg(...)'.variables]`).
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TargetSection {
     #[serde(default)]
     pub variables: HashMap<String, String>,
+}
+
+/// Build configuration settings.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct BuildConfig {
+    /// Cached backend to build (e.g. 'metamod' or 'standalone').
+    #[serde(default)]
+    pub backend: Option<BackendType>,
+    /// Cached target architecture triple (e.g. 'i686-pc-windows-msvc', 'wasm32-unknown-unknown').
+    #[serde(default)]
+    pub target: Option<String>,
+    /// Build in release mode (default: true).
+    #[serde(default = "default_release")]
+    pub release: bool,
+    /// Build preset: 'production', 'debug-symbols', or 'dev'.
+    #[serde(default)]
+    pub preset: Option<String>,
+}
+
+fn default_release() -> bool {
+    true
 }
 
 /// Server deployment settings.
@@ -116,8 +138,11 @@ pub struct CodegenConfig {
 }
 
 /// Root `.goldsrc.toml` configuration structure.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LocalConfig {
+    /// Build configuration.
+    #[serde(default)]
+    pub build: BuildConfig,
     /// Deployment configuration.
     #[serde(default)]
     pub deploy: DeployConfig,
@@ -127,6 +152,78 @@ pub struct LocalConfig {
     /// Codegen and headers paths.
     #[serde(default)]
     pub codegen: CodegenConfig,
+}
+
+impl Default for LocalConfig {
+    fn default() -> Self {
+        let mut target = HashMap::new();
+
+        let mut win_vars = HashMap::new();
+        win_vars.insert("platform".to_string(), "windows".to_string());
+        win_vars.insert("metamod_platform".to_string(), "win32".to_string());
+        win_vars.insert("liblist_key".to_string(), "gamedll".to_string());
+        win_vars.insert("lib_prefix".to_string(), "".to_string());
+        win_vars.insert("lib_ext".to_string(), "dll".to_string());
+        win_vars.insert("path_sep".to_string(), "\\".to_string());
+        target.insert(
+            "cfg(windows)".to_string(),
+            TargetSection {
+                variables: win_vars,
+            },
+        );
+
+        let mut linux_vars = HashMap::new();
+        linux_vars.insert("platform".to_string(), "linux".to_string());
+        linux_vars.insert("metamod_platform".to_string(), "linux".to_string());
+        linux_vars.insert("liblist_key".to_string(), "gamedll_linux".to_string());
+        linux_vars.insert("lib_prefix".to_string(), "lib".to_string());
+        linux_vars.insert("lib_ext".to_string(), "so".to_string());
+        linux_vars.insert("path_sep".to_string(), "/".to_string());
+        target.insert(
+            "cfg(target_os = \"linux\")".to_string(),
+            TargetSection {
+                variables: linux_vars,
+            },
+        );
+
+        let mut backend_defs = HashMap::new();
+        backend_defs.insert(
+            "metamod".to_string(),
+            BackendDeployDef {
+                copy_dest: "addons/goldsrc/lib".to_string(),
+                patches: vec![FilePatchRule::ListEntry {
+                    file: "addons/metamod/plugins.ini".to_string(),
+                    comment_prefixes: vec![";".to_string(), "//".to_string(), "#".to_string()],
+                    match_pattern: "goldsrc_metamod".to_string(),
+                    entry: "{metamod_platform} addons/goldsrc/lib/{lib_prefix}goldsrc_metamod.{lib_ext}".to_string(),
+                }],
+            },
+        );
+        backend_defs.insert(
+            "standalone".to_string(),
+            BackendDeployDef {
+                copy_dest: "../goldsrc/bin".to_string(),
+                patches: vec![FilePatchRule::KeyValue {
+                    file: "liblist.gam".to_string(),
+                    separator: " ".to_string(),
+                    key: "{liblist_key}".to_string(),
+                    value: "\"..{path_sep}goldsrc{path_sep}bin{path_sep}{lib_prefix}goldsrc_standalone.{lib_ext}\"".to_string(),
+                }],
+            },
+        );
+
+        let deploy = DeployConfig {
+            backend_defs,
+            ..Default::default()
+        };
+
+        Self {
+            build: BuildConfig::default(),
+            deploy,
+            target,
+            codegen: CodegenConfig::default(),
+        }
+    }
 }
 
 impl LocalConfig {
@@ -195,14 +292,27 @@ impl LocalConfig {
         Self::default()
     }
 
-    /// Saves updated deployment settings back into `.goldsrc.toml`.
-    pub fn save_deploy_cache(&self, path: &Path) -> Result<(), String> {
+    /// Saves updated settings back into `.goldsrc.toml`.
+    pub fn save_cache(&self, path: &Path) -> Result<(), String> {
         let content = toml::to_string_pretty(self).map_err(|e| e.to_string())?;
         std::fs::write(path, content).map_err(|e| e.to_string())?;
         Ok(())
     }
 
+    /// Saves updated deployment settings back into `.goldsrc.toml`. (Alias for save_cache)
+    pub fn save_deploy_cache(&self, path: &Path) -> Result<(), String> {
+        self.save_cache(path)
+    }
+
     /// Evaluates target `cfg(...)` conditions and builds the merged variables map.
+    ///
+    /// The variables map is populated purely from declarative configurations:
+    /// 1. Shared `[deploy.variables]`
+    /// 2. Conditional `[target.'cfg(...)'.variables]` matching target_triple
+    /// 3. Minimal universal context (`mod_name`, `goldsrc_root`)
+    ///
+    /// Platform specific identifiers (`metamod_platform`, `lib_ext`, `lib_prefix`, `liblist_key`, `path_sep`)
+    /// come directly from the `target.'cfg(...)'.variables` tables in `.goldsrc.toml`.
     pub fn resolve_variables(&self, target_triple: &str) -> HashMap<String, String> {
         let is_windows = target_triple.contains("windows");
         let is_linux = target_triple.contains("linux");
@@ -210,37 +320,7 @@ impl LocalConfig {
 
         let mut vars = HashMap::new();
 
-        // 1. Built-in base platform variables
-        if is_windows {
-            vars.insert("platform".to_string(), "windows".to_string());
-            vars.insert("metamod_platform".to_string(), "win32".to_string());
-            vars.insert("liblist_key".to_string(), "gamedll".to_string());
-            vars.insert("lib_prefix".to_string(), "".to_string());
-            vars.insert("lib_ext".to_string(), "dll".to_string());
-            vars.insert("path_sep".to_string(), "\\".to_string());
-        } else if is_linux {
-            vars.insert("platform".to_string(), "linux".to_string());
-            vars.insert("metamod_platform".to_string(), "linux".to_string());
-            vars.insert("liblist_key".to_string(), "gamedll_linux".to_string());
-            vars.insert("lib_prefix".to_string(), "lib".to_string());
-            vars.insert("lib_ext".to_string(), "so".to_string());
-            vars.insert("path_sep".to_string(), "/".to_string());
-        } else if is_macos {
-            vars.insert("platform".to_string(), "macos".to_string());
-            vars.insert("metamod_platform".to_string(), "osx".to_string());
-            vars.insert("liblist_key".to_string(), "gamedll_osx".to_string());
-            vars.insert("lib_prefix".to_string(), "lib".to_string());
-            vars.insert("lib_ext".to_string(), "dylib".to_string());
-            vars.insert("path_sep".to_string(), "/".to_string());
-        } else {
-            vars.insert("platform".to_string(), "unknown".to_string());
-            vars.insert("metamod_platform".to_string(), "".to_string());
-            vars.insert("liblist_key".to_string(), "gamedll".to_string());
-            vars.insert("lib_prefix".to_string(), "".to_string());
-            vars.insert("lib_ext".to_string(), "so".to_string());
-            vars.insert("path_sep".to_string(), "/".to_string());
-        }
-
+        // 1. Context variables
         vars.insert("goldsrc_root".to_string(), "goldsrc".to_string());
         vars.insert("mod_name".to_string(), self.deploy.mod_name.clone());
 
@@ -331,9 +411,14 @@ mod tests {
             custom_brand = "my_server"
 
             [target.'cfg(windows)'.variables]
+            platform = "windows"
+            lib_ext = "dll"
             custom_tag = "win32_bin"
 
             [target.'cfg(unix)'.variables]
+            platform = "linux"
+            lib_prefix = "lib"
+            lib_ext = "so"
             custom_tag = "unix_bin"
         "#;
 
@@ -354,6 +439,9 @@ mod tests {
             backend = "standalone"
 
             [target.'cfg(unix)'.variables]
+            platform = "linux"
+            lib_prefix = "lib"
+            lib_ext = "so"
             custom_tag = "unix_bin"
         "#;
 
