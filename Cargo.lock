@@ -240,6 +240,7 @@ dependencies = [
 [[package]]
 name = "goldsrc-api"
 version = "0.20.0"
+source = "git+https://github.com/goldsrc-rs/goldsrc-sdk.git?branch=dev#ac767aeb9e7faaea62e5da308cee888f5b30f725"
 dependencies = [
  "goldsrc-spi",
  "log",
@@ -251,6 +252,7 @@ dependencies = [
 [[package]]
 name = "goldsrc-macros"
 version = "0.20.0"
+source = "git+https://github.com/goldsrc-rs/goldsrc-sdk.git?branch=dev#ac767aeb9e7faaea62e5da308cee888f5b30f725"
 dependencies = [
  "goldsrc-api",
  "proc-macro2",
@@ -261,6 +263,7 @@ dependencies = [
 [[package]]
 name = "goldsrc-spi"
 version = "0.20.0"
+source = "git+https://github.com/goldsrc-rs/goldsrc-sdk.git?branch=dev#ac767aeb9e7faaea62e5da308cee888f5b30f725"
 dependencies = [
  "serde",
  "stitch-core",
@@ -692,6 +695,7 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 [[package]]
 name = "stitch-cli"
 version = "0.3.0"
+source = "git+https://github.com/ulquiorracode/stitch-rs.git?branch=main#ad40426668fe6b243bc180d7cf3bfadca74aef02"
 dependencies = [
  "clap",
  "miette",
@@ -710,10 +714,12 @@ dependencies = [
 [[package]]
 name = "stitch-core"
 version = "0.3.0"
+source = "git+https://github.com/ulquiorracode/stitch-rs.git?branch=main#ad40426668fe6b243bc180d7cf3bfadca74aef02"
 
 [[package]]
 name = "stitch-macros"
 version = "0.3.0"
+source = "git+https://github.com/ulquiorracode/stitch-rs.git?branch=main#ad40426668fe6b243bc180d7cf3bfadca74aef02"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1203,11 +1209,3 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
-
-[[patch.unused]]
-name = "goldsrc-sys"
-version = "0.20.0"
-
-[[patch.unused]]
-name = "stitch-rs"
-version = "0.3.0"

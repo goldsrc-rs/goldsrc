@@ -39,15 +39,4 @@ strip = "debuginfo"
 panic = "unwind"
 overflow-checks = true
 
-[patch."https://github.com/goldsrc-rs/goldsrc-sdk.git"]
-goldsrc-api = { path = "../goldsrc-sdk-core/goldsrc-api" }
-goldsrc-spi = { path = "../goldsrc-sdk-core/goldsrc-spi" }
-goldsrc-macros = { path = "../goldsrc-sdk-core/goldsrc-macros" }
-goldsrc-sys = { path = "../goldsrc-sdk-core/goldsrc-sys" }
-
-[patch."https://github.com/ulquiorracode/stitch-rs.git"]
-stitch-cli = { path = "../../stitch-rs/crates/stitch-cli" }
-stitch-core = { path = "../../stitch-rs/crates/stitch-core" }
-stitch-macros = { path = "../../stitch-rs/crates/stitch-macros" }
-stitch-rs = { path = "../../stitch-rs" }
 
