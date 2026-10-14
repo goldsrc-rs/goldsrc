@@ -240,7 +240,7 @@ dependencies = [
 [[package]]
 name = "goldsrc-api"
 version = "0.20.0"
-source = "git+https://github.com/goldsrc-rs/goldsrc-sdk.git?branch=dev#ac767aeb9e7faaea62e5da308cee888f5b30f725"
+source = "git+https://github.com/goldsrc-rs/goldsrc-sdk.git?branch=dev#7d55c5b467d57dd24e179badc920889341471757"
 dependencies = [
  "goldsrc-spi",
  "log",
@@ -252,7 +252,7 @@ dependencies = [
 [[package]]
 name = "goldsrc-macros"
 version = "0.20.0"
-source = "git+https://github.com/goldsrc-rs/goldsrc-sdk.git?branch=dev#ac767aeb9e7faaea62e5da308cee888f5b30f725"
+source = "git+https://github.com/goldsrc-rs/goldsrc-sdk.git?branch=dev#7d55c5b467d57dd24e179badc920889341471757"
 dependencies = [
  "goldsrc-api",
  "proc-macro2",
@@ -263,7 +263,7 @@ dependencies = [
 [[package]]
 name = "goldsrc-spi"
 version = "0.20.0"
-source = "git+https://github.com/goldsrc-rs/goldsrc-sdk.git?branch=dev#ac767aeb9e7faaea62e5da308cee888f5b30f725"
+source = "git+https://github.com/goldsrc-rs/goldsrc-sdk.git?branch=dev#7d55c5b467d57dd24e179badc920889341471757"
 dependencies = [
  "serde",
  "stitch-core",
