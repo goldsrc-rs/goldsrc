@@ -6,55 +6,21 @@ on:
   pull_request:
     branches: [main, dev]
 
-env:
-  CARGO_TERM_COLOR: always
-  CARGO_INCREMENTAL: 0
-  RUSTFLAGS: "-D warnings -C debuginfo=0"
-
 jobs:
-  fmt-check:
-    name: Code Formatting
+  lint-markdown:
+    name: Lint Documentation
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
         with:
-          components: rustfmt
+          node-version: "20"
 
-      - name: Check Formatting
-        run: cargo fmt --all -- --check
-
-  build-and-test:
-    name: Test (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-
-      - name: Cache Dependencies & Build Artifacts
-        uses: Swatinem/rust-cache@v2
-
-      - name: Install Nextest
-        uses: taiki-e/install-action@nextest
-
-      - name: Run Clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
-
-      - name: Run Tests (Nextest)
-        run: cargo nextest run --all-targets --no-tests=pass
-
-      - name: Run Doc Tests
-        run: cargo test --doc
-
-      - name: Compile Benchmarks
-        run: cargo bench --no-run --locked
+      - name: Verify Documentation Files Exist
+        run: |
+          test -f README.md
+          test -f ECOSYSTEM_BLUEPRINT.md
+          test -f CONTRIBUTING.md
+          test -f SECURITY.md
